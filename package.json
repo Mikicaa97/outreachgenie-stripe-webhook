@@ -1,0 +1,11 @@
+{
+  "name": "stripe-webhook-vercel",
+  "version": "1.0.0",
+  "main": "api/stripe-webhook.js",
+  "license": "MIT",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.5",
+    "micro": "^9.3.4",
+    "stripe": "^12.21.0"
+  }
+}

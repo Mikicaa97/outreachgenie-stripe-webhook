@@ -1,8 +1,10 @@
 import Stripe from "stripe";
+import { buffer } from "micro";
+import { supabase } from "../../supabase.js";
 
 export const config = {
   api: {
-    bodyParser: false, // Stripe traži raw body za verifikaciju potpisa
+    bodyParser: false,
   },
 };
 
@@ -24,34 +26,27 @@ export default async function handler(req, res) {
       process.env.STRIPE_WEBHOOK_SECRET
     );
   } catch (err) {
-    console.error("❌ Greška:", err.message);
-    return res.status(400).send(`Webhook error: ${err.message}`);
+    console.error("Webhook error:", err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
   }
 
-  // ✅ Rukovanje Stripe eventima
-  switch (event.type) {
-    case "checkout.session.completed":
-      console.log("💰 Plaćanje uspešno:", event.data.object);
-      break;
-    case "customer.subscription.updated":
-      console.log("🔄 Pretplata promenjena:", event.data.object);
-      break;
-    case "customer.subscription.deleted":
-      console.log("❌ Pretplata otkazana:", event.data.object);
-      break;
-    default:
-      console.log(`ℹ️ Nepoznat event: ${event.type}`);
+  // ✅ Obrada događaja
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const userId = session.client_reference_id;
+    const priceId = session.metadata.price_id;
+
+    let newPlan = "free";
+    if (priceId === process.env.STRIPE_PRO_PRICE_ID) newPlan = "pro";
+    if (priceId === process.env.STRIPE_AGENCY_PRICE_ID) newPlan = "agency";
+    if (priceId === process.env.STRIPE_ENTERPRISE_PRICE_ID) newPlan = "enterprise";
+
+    // ✅ Update korisničkog plana u Supabase
+    await supabase
+      .from("user_profiles")
+      .update({ plan: newPlan })
+      .eq("id", userId);
   }
 
-  res.status(200).send("OK");
-}
-
-// Pomoćna funkcija za raw body
-import { Readable } from "stream";
-async function buffer(readable) {
-  const chunks = [];
-  for await (const chunk of readable) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
-  }
-  return Buffer.concat(chunks);
+  res.status(200).json({ received: true });
 }

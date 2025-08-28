@@ -1,60 +1,57 @@
-import { buffer } from "micro";
 import Stripe from "stripe";
-import { createClient } from "@supabase/supabase-js";
 
 export const config = {
   api: {
-    bodyParser: false,
+    bodyParser: false, // Stripe traži raw body za verifikaciju potpisa
   },
 };
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2022-11-15",
-});
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
-    res.setHeader("Allow", "POST");
-    return res.status(405).end("Method Not Allowed");
+    return res.status(405).send("Method Not Allowed");
   }
 
-  const buf = await buffer(req);
   const sig = req.headers["stripe-signature"];
-
   let event;
 
   try {
-    event = stripe.webhooks.constructEvent(buf, sig, endpointSecret);
+    const buf = await buffer(req);
+    event = stripe.webhooks.constructEvent(
+      buf,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
   } catch (err) {
-    console.error("Webhook signature verification failed.", err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
+    console.error("❌ Greška:", err.message);
+    return res.status(400).send(`Webhook error: ${err.message}`);
   }
 
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-
-    const user_id = session.client_reference_id;
-    const plan = session.metadata?.plan || "pro";
-
-    const { error } = await supabase
-      .from("user_profiles")
-      .update({ plan })
-      .eq("id", user_id);
-
-    if (error) {
-      console.error("Failed to update plan:", error.message);
-      return res.status(500).send("Failed to update plan.");
-    }
-
-    console.log(`✅ Plan updated for user ${user_id} to ${plan}`);
+  // ✅ Rukovanje Stripe eventima
+  switch (event.type) {
+    case "checkout.session.completed":
+      console.log("💰 Plaćanje uspešno:", event.data.object);
+      break;
+    case "customer.subscription.updated":
+      console.log("🔄 Pretplata promenjena:", event.data.object);
+      break;
+    case "customer.subscription.deleted":
+      console.log("❌ Pretplata otkazana:", event.data.object);
+      break;
+    default:
+      console.log(`ℹ️ Nepoznat event: ${event.type}`);
   }
 
-  res.status(200).send("Received");
+  res.status(200).send("OK");
+}
+
+// Pomoćna funkcija za raw body
+import { Readable } from "stream";
+async function buffer(readable) {
+  const chunks = [];
+  for await (const chunk of readable) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks);
 }

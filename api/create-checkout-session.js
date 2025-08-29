@@ -10,23 +10,45 @@ export default async function handler(req, res) {
     return res.status(405).end('Method Not Allowed')
   }
 
+  const { plan, userId, email } = req.body
+
+  let priceId = ''
+
+  switch (plan) {
+    case 'pro':
+      priceId = process.env.STRIPE_PRO_PRICE_ID
+      break
+    case 'agency':
+      priceId = process.env.STRIPE_AGENCY_PRICE_ID
+      break
+    case 'enterprise':
+      priceId = process.env.STRIPE_ENTERPRISE_PRICE_ID
+      break
+    default:
+      return res.status(400).json({ error: 'Nepoznat plan' })
+  }
+
   try {
     const session = await stripe.checkout.sessions.create({
-      mode: 'subscription', // ili 'payment' ako nije pretplata
+      mode: 'subscription',
       payment_method_types: ['card'],
+      customer_email: email,
       line_items: [
         {
-          price: 'price_1YourStripePriceID', // OVDE stavi tvoj tačan Price ID iz Stripe-a
+          price: priceId,
           quantity: 1,
         },
       ],
-      success_url: 'https://tvojfrontend.vercel.app/success',
-      cancel_url: 'https://tvojfrontend.vercel.app/cancel',
+      metadata: {
+        userId: userId,
+      },
+      success_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard?success=true`,
+      cancel_url: `${process.env.NEXT_PUBLIC_BASE_URL}/dashboard?canceled=true`,
     })
 
     res.status(200).json({ url: session.url })
   } catch (err) {
-    console.error('❌ Stripe error:', err)
-    res.status(500).json({ error: 'Internal Server Error' })
+    console.error('Stripe error', err)
+    res.status(500).json({ error: 'Stripe greška' })
   }
 }
